@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<widget id="com.mou.mygame" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+  <name>MiniGame</name>
+  <description>Top‑Down Mini Game wrapped with Cordova</description>
+  <author email="you@example.com">MOU</author>
+  <content src="index.html" />
+  <preference name="Orientation" value="landscape" />
+  <preference name="Fullscreen" value="true" />
+  <preference name="AndroidXEnabled" value="true" />
+  <engine name="android" spec="^13.0.0" />
+  <plugin name="cordova-plugin-whitelist" spec="1.3.5" />
+  <access origin="*" />
+</widget>

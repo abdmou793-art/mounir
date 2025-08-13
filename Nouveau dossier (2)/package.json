@@ -1,0 +1,9 @@
+{
+  "name": "mygame",
+  "version": "1.0.0",
+  "displayName": "MiniGame",
+  "private": true,
+  "dependencies": {
+    "cordova-android": "^13.0.0"
+  }
+}

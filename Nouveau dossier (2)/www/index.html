@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Top‑Down Mini Game — Cordova</title>
+  <meta name="theme-color" content="#0e0f13">
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body { height: 100%; margin: 0; background:#0e0f13; color:#e7e7e7; font-family: system-ui, sans-serif; touch-action: none; }
+    #wrap { display:flex; gap:16px; padding:16px; box-sizing:border-box; }
+    #ui { width: 260px; padding:12px; background:#14161c; border:1px solid #20232b; border-radius:12px; }
+    #ui h1 { font-size: 18px; margin: 0 0 8px; }
+    #ui p { margin: 6px 0; line-height: 1.4; }
+    #stats { font-variant-numeric: tabular-nums; }
+    canvas { background:#0b0d12; border:1px solid #20232b; border-radius:12px; display:block; touch-action: none; }
+    .kbd { padding:1px 6px; border:1px solid #2a2e39; border-bottom-width:2px; border-radius:6px; background:#171a22; }
+    button { background:#1e2230; color:#e7e7e7; border:1px solid #2a2e39; border-radius:10px; padding:8px 10px; cursor:pointer; }
+    button:hover{ filter:brightness(1.15); }
+    /* Mobile helpers */
+    #mobileControls{ position: fixed; inset: auto 0 12px 0; display:flex; justify-content:center; gap:16px; pointer-events:auto; }
+    #mobileControls button{ width:64px; height:64px; border-radius:50%; opacity:0.8; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="900" height="600"></canvas>
+    <div id="ui">
+      <h1>Top‑Down Mini Game</h1>
+      <p>
+        <strong>Controls:</strong>
+        <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> / Arrows — Move<br>
+        <span class="kbd">Space</span> — Dash<br>
+        <span class="kbd">P</span> — Pause/Resume
+      </p>
+      <p id="stats">FPS: — | Enemies: —</p>
+      <button id="resetBtn">↻ Restart</button>
+    </div>
+  </div>
+
+  <!-- Simple on‑screen mobile controls -->
+  <div id="mobileControls">
+    <button id="btnLeft">◀</button>
+    <button id="btnUp">▲</button>
+    <button id="btnDown">▼</button>
+    <button id="btnRight">▶</button>
+    <button id="btnDash">⤴</button>
+    <button id="btnPause">⏸</button>
+  </div>
+
+  <script>
+    // Register SW for PWA (works in WebView with HTTPS or local asset)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    }
+  </script>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const rand = (a, b) => Math.random() * (b - a) + a;
+
+    const walls = [
+      {x:40,  y:40,  w:820, h:24},
+      {x:40,  y:536, w:820, h:24},
+      {x:40,  y:64,  w:24,  h:472},
+      {x:836, y:64,  w:24,  h:472},
+      {x:160, y:140, w:580, h:24},
+      {x:160, y:280, w:24,  h:180},
+      {x:300, y:220, w:380, h:24},
+      {x:360, y:360, w:24,  h:120},
+      {x:500, y:320, w:260, h:24},
+      {x:740, y:180, w:24,  h:164},
+    ];
+
+    function rectsOverlap(a, b){
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function tryMove(box, dx, dy){
+      const next = {x: box.x + dx, y: box.y + dy, w: box.w, h: box.h};
+      const nx = {x: next.x, y: box.y, w: box.w, h: box.h};
+      if(!walls.some(w => rectsOverlap(nx, w))) box.x = nx.x; else {
+        for(const w of walls){ if(rectsOverlap(nx, w)){
+          if(dx > 0) box.x = w.x - box.w; else if(dx < 0) box.x = w.x + w.w;
+        }}}
+      const ny = {x: box.x, y: next.y, w: box.w, h: box.h};
+      if(!walls.some(w => rectsOverlap(ny, w))) box.y = ny.y; else {
+        for(const w of walls){ if(rectsOverlap(ny, w)){
+          if(dy > 0) box.y = w.y - box.h; else if(dy < 0) box.y = w.y + w.h;
+        }}}
+      box.x = clamp(box.x, 40+1, 836 - box.w - 1);
+      box.y = clamp(box.y, 64+1, 536 - box.h - 1);
+    }
+
+    const player = { x: 80, y: 100, w: 22, h: 22, speed: 2.15, dash: 5.5, dashCd: 0 };
+    const ENEMY_COUNT = 8;
+    const enemies = [];
+
+    function spawnEnemies(){
+      enemies.length = 0;
+      for(let i=0;i<ENEMY_COUNT;i++){
+        enemies.push({
+          x: rand(120, 780), y: rand(120, 500), w: 22, h: 22,
+          speed: rand(1.1, 1.6),
+          vx: rand(-1,1), vy: rand(-1,1),
+          state: 'wander',
+        });
+      }
+    }
+    spawnEnemies();
+
+    const keys = {};
+    window.addEventListener('keydown', e=>{ keys[e.key.toLowerCase()] = true; if(e.key===' ') e.preventDefault(); });
+    window.addEventListener('keyup',   e=>{ keys[e.key.toLowerCase()] = false; });
+
+    // Mobile buttons → map to key states
+    const mapBtn = (id, key)=>{
+      const el = document.getElementById(id);
+      const on = ()=> keys[key]=true;
+      const off = ()=> keys[key]=false;
+      ['pointerdown','touchstart','mousedown'].forEach(ev=>el.addEventListener(ev, on, {passive:true}));
+      ['pointerup','pointercancel','touchend','touchcancel','mouseup','mouseleave'].forEach(ev=>el.addEventListener(ev, off));
+    };
+    mapBtn('btnLeft','arrowleft');
+    mapBtn('btnRight','arrowright');
+    mapBtn('btnUp','arrowup');
+    mapBtn('btnDown','arrowdown');
+    document.getElementById('btnDash').addEventListener('click', ()=>{ keys[' ']=true; setTimeout(()=>keys[' ']=false, 80); });
+    document.getElementById('btnPause').addEventListener('click', ()=>{ paused = !paused; });
+
+    let paused = false;
+    window.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase() === 'p') paused = !paused; });
+    document.getElementById('resetBtn').onclick = ()=>{ player.x = 80; player.y = 100; player.dashCd = 0; spawnEnemies(); };
+
+    let lastTs = 0, fps = 0;
+
+    function update(dt){
+      let dx = 0, dy = 0;
+      if(keys['w'] || keys['arrowup']) dy -= 1;
+      if(keys['s'] || keys['arrowdown']) dy += 1;
+      if(keys['a'] || keys['arrowleft']) dx -= 1;
+      if(keys['d'] || keys['arrowright']) dx += 1;
+      if(dx || dy){
+        const len = Math.hypot(dx, dy) || 1;
+        dx = (dx/len) * player.speed;
+        dy = (dy/len) * player.speed;
+      }
+      if((keys[' '] || keys['space']) && player.dashCd <= 0){
+        dx *= player.dash; dy *= player.dash; player.dashCd = 0.6;
+      }
+      if(player.dashCd > 0) player.dashCd -= dt;
+      tryMove(player, dx, dy);
+
+      for(const e of enemies){
+        const cx = (e.x + e.w/2) - (player.x + player.w/2);
+        const cy = (e.y + e.h/2) - (player.y + player.h/2);
+        const dist = Math.hypot(cx, cy);
+        if(dist < 150){ e.state = 'chase'; } else if(dist > 200){ e.state = 'wander'; }
+        let evx = e.vx, evy = e.vy;
+        if(e.state === 'chase'){ const len = Math.max(dist, 0.001); evx = -cx/len; evy = -cy/len; }
+        else { evx += (Math.random()-0.5)*0.6; evy += (Math.random()-0.5)*0.6; const l = Math.hypot(evx, evy) || 1; evx/=l; evy/=l; }
+        const stepX = evx * e.speed;
+        const stepY = evy * e.speed;
+        tryMove(e, stepX, stepY);
+        e.vx = evx; e.vy = evy;
+      }
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle = '#0b0d12'; ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha = 0.25; ctx.strokeStyle = '#1b1f2a'; ctx.lineWidth = 1;
+      for(let x=0;x<=W;x+=24){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+      for(let y=0;y<=H;y+=24){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#202735'; for(const w of walls){ ctx.fillRect(w.x, w.y, w.w, w.h); }
+      ctx.fillStyle = '#5dd6ff'; ctx.fillRect(player.x, player.y, player.w, player.h);
+      ctx.fillStyle = '#ff6b6b'; for(const e of enemies){ ctx.fillRect(e.x, e.y, e.w, e.h); }
+      ctx.fillStyle = '#e7e7e7'; ctx.font = '14px system-ui, sans-serif';
+      ctx.fillText('Dash CD: ' + Math.max(0, player.dashCd).toFixed(2), 14, 20);
+    }
+
+    function loop(ts){
+      const dt = Math.min(0.05, (ts - lastTs)/1000 || 0.016);
+      lastTs = ts;
+      fps = Math.round(1/dt);
+      if(!paused) update(dt);
+      draw();
+      document.getElementById('stats').textContent = `FPS: ${fps} | Enemies: ${enemies.length}`;
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
